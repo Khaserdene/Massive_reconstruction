@@ -1,0 +1,27 @@
+# Python environments
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Local Data and Logs
+data/
+logs/
+.system_generated/
+*.log
+
+# Third-party tools downloaded locally
+tools/COLMAP/
+tools/gaussian-splatting/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+outputs/
+gaussian-splatting/

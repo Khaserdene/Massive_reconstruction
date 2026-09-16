@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3DGS Admin Dashboard</title>
+    <!-- TailwindCSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; } /* Slate 900 */
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .terminal-text { font-family: 'Courier New', Courier, monospace; }
+        
+        /* Custom Scrollbar for Terminal */
+        #log-container::-webkit-scrollbar { width: 8px; }
+        #log-container::-webkit-scrollbar-track { background: #1e293b; }
+        #log-container::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    </style>
+</head>
+<body class="min-h-screen p-8">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                    3DGS Control Panel
+                </h1>
+                <p class="text-slate-400 mt-1">Manage recordings, run COLMAP & Train 3DGS</p>
+            </div>
+            <div>
+                <button onclick="document.getElementById('settings-modal').classList.remove('hidden')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg shadow transition">
+                    ⚙️ Тохиргоо (Settings)
+                </button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Left Column: Sessions List -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="glass-panel p-6 rounded-2xl shadow-xl">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-semibold">Зураг авалтууд (Sessions)</h2>
+                        <button onclick="loadSessions()" class="text-sm text-blue-400 hover:text-blue-300">Сэргээх 🔄</button>
+                    </div>
+                    
+                    <div id="sessions-list" class="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                        <!-- Items injected here by JS -->
+                        <p class="text-slate-500">Уншиж байна...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Terminal & Viewer -->
+            <div class="lg:col-span-2 space-y-6">
+                
+                <!-- Terminal Log Area -->
+                <div class="glass-panel p-6 rounded-2xl shadow-xl flex flex-col h-[400px]">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-xl font-semibold flex items-center">
+                            <span class="w-3 h-3 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+                            Боловсруулалтын лог (Terminal)
+                        </h2>
+                    </div>
+                    <div id="log-container" class="flex-1 bg-black/50 rounded-lg p-4 overflow-y-auto terminal-text text-sm text-green-400 break-words whitespace-pre-wrap">
+                        Систем бэлэн...
+                    </div>
+                </div>
+
+                <!-- Web Viewer Info -->
+                <div class="glass-panel p-6 rounded-2xl shadow-xl bg-gradient-to-br from-indigo-900/50 to-purple-900/50 border-indigo-500/30">
+                    <h2 class="text-xl font-semibold mb-2">3D Үр дүн харах</h2>
+                    <p class="text-slate-300 text-sm mb-4">Сургалт дууссаны дараа Session хэсэгт үүсэх "View 3D" товчийг дарж татан аваад <a href="https://antimatter15.com/splat/" target="_blank" class="text-blue-400 underline">antimatter15/splat</a> дээр оруулж харна уу. Эсвэл SIBR viewer ашиглаарай.</p>
+                </div>
+                
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center hidden z-50">
+        <div class="glass-panel p-8 rounded-2xl w-full max-w-md shadow-2xl border-slate-600">
+            <h2 class="text-2xl font-bold mb-6">Тохиргоо</h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-slate-400 mb-1">Python Path (python.exe)</label>
+                    <input type="text" id="set-python" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-blue-500">
+                </div>
+            </div>
+
+            <div class="mt-8 flex justify-end space-x-3">
+                <button onclick="document.getElementById('settings-modal').classList.add('hidden')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded">Цуцлах</button>
+                <button onclick="saveSettings()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white font-bold">Хадгалах</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const logContainer = document.getElementById('log-container');
+        
+        // 1. Fetch Sessions
+        async function loadSessions() {
+            const list = document.getElementById('sessions-list');
+            try {
+                const res = await fetch('/api/sessions');
+                const sessions = await res.json();
+                list.innerHTML = '';
+                
+                if (sessions.length === 0) {
+                    list.innerHTML = '<p class="text-slate-500">Одоогоор дата байхгүй байна. Утсаараа холбогдож бичлэг хийнэ үү.</p>';
+                    return;
+                }
+                
+                sessions.forEach(s => {
+                    const card = document.createElement('div');
+                    card.className = "bg-slate-800/80 p-4 rounded-xl border border-slate-700 hover:border-slate-500 transition group";
+                    
+                    let actionBtn = `<button onclick="startProcessing('${s.id}')" class="mt-3 w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-lg text-white font-bold text-sm shadow transition">▶ 3D Орчин Үүсгэх (Train)</button>`;
+                    
+                    if (s.model_url) {
+                        actionBtn = `
+                            <div class="mt-3 flex space-x-2">
+                                <a href="${s.model_url}" download class="flex-1 text-center py-2 bg-green-600 hover:bg-green-500 rounded-lg text-white font-bold text-sm shadow transition">⬇ Model татах (.ply)</a>
+                                <button onclick="startProcessing('${s.id}')" class="px-3 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg text-white font-bold text-sm shadow transition" title="Дахин сургах">🔄</button>
+                            </div>
+                        `;
+                    }
+
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 class="font-bold text-slate-200">ID: ${s.id}</h3>
+                                <p class="text-xs text-slate-400 mt-1">${s.created_at}</p>
+                            </div>
+                            <div class="flex flex-col items-end gap-2">
+                                <span class="bg-slate-900 text-xs px-2 py-1 rounded text-slate-300 border border-slate-700">${s.frames} frames</span>
+                                <button onclick="deleteSession('${s.id}')" class="text-xs text-red-400 hover:text-red-300 transition px-2 py-1 rounded bg-red-900/30 border border-red-900/50">🗑 Устгах</button>
+                            </div>
+                        </div>
+                        <div class="mt-2 text-xs flex gap-2">
+                            <span class="px-2 py-0.5 rounded ${s.has_sparse ? 'bg-blue-900/50 text-blue-300' : 'bg-slate-700 text-slate-400'}">COLMAP: ${s.has_sparse ? 'Бэлэн' : 'Үгүй'}</span>
+                            <span class="px-2 py-0.5 rounded ${s.model_url ? 'bg-green-900/50 text-green-300' : 'bg-slate-700 text-slate-400'}">3DGS: ${s.model_url ? 'Бэлэн' : 'Үгүй'}</span>
+                        </div>
+                        ${actionBtn}
+                    `;
+                    list.appendChild(card);
+                });
+            } catch (err) {
+                list.innerHTML = '<p class="text-red-400">Алдаа гарлаа: '+err.message+'</p>';
+            }
+        }
+
+        // 2. Start Processing
+        async function startProcessing(id) {
+            try {
+                const res = await fetch('/api/process/' + id, { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'started') {
+                    alert('Боловсруулалт эхэллээ. Лог хэсгийг харна уу.');
+                } else {
+                    alert('Алдаа: ' + data.message);
+                }
+            } catch(e) {
+                alert('Сүлжээний алдаа гарлаа.');
+            }
+        }
+
+        async function deleteSession(id) {
+            if (!confirm('Энэ датаг устгахдаа итгэлтэй байна уу?')) return;
+            try {
+                const res = await fetch('/api/sessions/' + id, { method: 'DELETE' });
+                if (res.ok) {
+                    loadSessions();
+                } else {
+                    alert('Устгахад алдаа гарлаа.');
+                }
+            } catch(e) {
+                alert('Сүлжээний алдаа гарлаа.');
+            }
+        }
+
+        // 3. WebSocket for Logs
+        function connectLogs() {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const ws = new WebSocket(`${protocol}//${window.location.host}/ws/logs`);
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(line => {
+                        logContainer.textContent += '\n' + line;
+                    });
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                    
+                    // Auto-refresh sessions list if pipeline finished
+                    if(data.logs.some(l => l.includes("Pipeline Finished Successfully"))) {
+                        setTimeout(loadSessions, 2000);
+                    }
+                }
+            };
+            
+            ws.onclose = () => {
+                setTimeout(connectLogs, 2000); // Reconnect
+            };
+        }
+
+        // 4. Settings Management
+        async function loadSettings() {
+            const res = await fetch('/api/settings');
+            const data = await res.json();
+            document.getElementById('set-python').value = data.python_path || 'python';
+        }
+
+        async function saveSettings() {
+            const payload = {
+                python_path: document.getElementById('set-python').value,
+                gs_script_dir: "",
+                colmap_path: ""
+            };
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            document.getElementById('settings-modal').classList.add('hidden');
+            alert('Тохиргоо хадгалагдлаа.');
+        }
+
+        // Init
+        loadSessions();
+        loadSettings();
+        connectLogs();
+    </script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3DGS Data Collector</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background: #222; color: #fff; }
+        h2 { margin-bottom: 10px; }
+        video, canvas { max-width: 100%; max-height: 60vh; border: 2px solid #555; border-radius: 8px; margin-bottom: 10px; object-fit: cover; }
+        .controls { margin-bottom: 20px; }
+        button { padding: 15px 30px; font-size: 18px; border: none; border-radius: 5px; cursor: pointer; margin: 0 5px; font-weight: bold; }
+        #startBtn { background: #4CAF50; color: white; }
+        #stopBtn { background: #f44336; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #status { font-weight: bold; margin-bottom: 10px; font-size: 18px; }
+    </style>
+</head>
+<body>
+
+    <h2>3DGS Data Collector</h2>
+    <div id="status" style="color: #ffca28;">Status: Ready (Press "Start Recording")</div>
+    
+    <div class="controls bg-slate-800 p-4 rounded-lg mb-4 text-left inline-block">
+        <div class="flex gap-4 mb-4">
+            <div>
+                <label class="block text-sm text-slate-400 mb-1">Нягтрал (Resolution)</label>
+                <select id="resSelect" class="bg-slate-700 text-white p-2 rounded border border-slate-600">
+                    <option value="240">240p (Санал болгох - Сул GPU)</option>
+                    <option value="360" selected>360p (Дундаж)</option>
+                    <option value="480">480p (Сайн GPU)</option>
+                    <option value="720">720p (Маш сайн GPU)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm text-slate-400 mb-1">Фрэйм хурд (FPS)</label>
+                <select id="fpsSelect" class="bg-slate-700 text-white p-2 rounded border border-slate-600">
+                    <option value="5">5 FPS</option>
+                    <option value="10" selected>10 FPS</option>
+                    <option value="15">15 FPS</option>
+                    <option value="30">30 FPS</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex gap-2 justify-center">
+            <button id="startBtn" class="bg-green-600 hover:bg-green-500">Бичлэг эхлэх</button>
+            <button id="stopBtn" class="bg-red-600 hover:bg-red-500" disabled>Зогсоох</button>
+            <button id="benchBtn" class="bg-purple-600 hover:bg-purple-500">GPU Тестлэх (Benchmark)</button>
+        </div>
+    </div>
+
+    <div>
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" style="display: none;"></canvas>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusText = document.getElementById('status');
+        
+        let ws;
+        let streamInterval;
+        let isBenchmarkMode = false;
+        
+        function getConstraints() {
+            const height = parseInt(document.getElementById('resSelect').value);
+            return {
+                video: { 
+                    facingMode: "environment",
+                    height: { ideal: height }
+                },
+                audio: false
+            };
+        }
+
+        function initCamera() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                statusText.textContent = "Error: Camera disabled by browser (HTTP Security)";
+                statusText.style.color = "#f44336";
+                alert("Camera API requires HTTPS!");
+                return;
+            }
+            navigator.mediaDevices.getUserMedia(getConstraints())
+                .then(stream => {
+                    video.srcObject = stream;
+                    statusText.textContent = "Camera Ready (Press Start)";
+                    statusText.style.color = "#4CAF50";
+                })
+                .catch(err => {
+                    console.error("Error accessing camera: ", err);
+                    statusText.textContent = "Error: Camera Permission Denied!";
+                    statusText.style.color = "#f44336";
+                });
+        }
+        initCamera();
+
+        document.getElementById('resSelect').addEventListener('change', () => {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            initCamera();
+        });
+
+        function startConnection(benchmark = false) {
+            isBenchmarkMode = benchmark;
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${protocol}//${window.location.host}/ws_realtime`;
+            
+            statusText.textContent = "Connecting to Real-time Server...";
+            statusText.style.color = "#ffca28";
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                statusText.textContent = benchmark ? "Status: BENCHMARKING GPU..." : "Status: REAL-TIME SCANNING";
+                statusText.style.color = "#4CAF50";
+                startBtn.disabled = true;
+                document.getElementById('benchBtn').disabled = true;
+                stopBtn.disabled = false;
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                const fps = parseInt(document.getElementById('fpsSelect').value);
+                streamInterval = setInterval(sendFrame, 1000 / fps);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === "benchmark_result") {
+                    alert(`GPU Benchmark Result: ${data.fps} FPS processed at ${data.resolution}p.\nRecommendation: ${data.recommendation}`);
+                    stopBtn.click();
+                } else if (data.type === "training_status") {
+                    statusText.textContent = `Status: Scanning... (Loss: ${data.loss.toFixed(3)}, Pts: ${data.points})`;
+                }
+            };
+
+            ws.onclose = () => resetUI();
+            ws.onerror = (err) => {
+                statusText.textContent = "Connection Error!";
+                statusText.style.color = "#f44336";
+            };
+        }
+
+        startBtn.addEventListener('click', () => startConnection(false));
+        document.getElementById('benchBtn').addEventListener('click', () => startConnection(true));
+
+        stopBtn.addEventListener('click', () => {
+            if (streamInterval) clearInterval(streamInterval);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+            resetUI();
+        });
+
+        function resetUI() {
+            startBtn.disabled = false;
+            document.getElementById('benchBtn').disabled = false;
+            stopBtn.disabled = true;
+            statusText.textContent = "Status: Stopped / Ready";
+            statusText.style.color = "#ffca28";
+            isBenchmarkMode = false;
+        }
+
+        function sendFrame() {
+            if (ws.readyState === WebSocket.OPEN && video.readyState >= 2) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+                
+                // MOCK Pose for now (WebXR will replace this in full implementation)
+                const mockPose = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+                
+                const payload = {
+                    type: isBenchmarkMode ? "benchmark_frame" : "train_frame",
+                    image: dataURL,
+                    pose: mockPose,
+                    timestamp: Date.now(),
+                    resolution: canvas.height
+                };
+                ws.send(JSON.stringify(payload));
+            }
+        }
+    </script>
+</body>
+</html>
